@@ -46,6 +46,7 @@ import org.kohsuke.stapler.StaplerRequest2;
 import org.kohsuke.stapler.interceptor.RequirePOST;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 
 import java.io.IOException;
 import java.io.PrintStream;
@@ -69,6 +70,7 @@ public final class S3BucketPublisher extends Recorder implements SimpleBuildStep
     private boolean dontWaitForConcurrentBuildCompletion;
     private boolean dontSetBuildResultOnFailure;
     private int uploadTimeout = 30; // default 30 mins
+    private ChecksumAlgorithm checksumAlgorithm = ChecksumAlgorithm.CRC32; // SDK's default
 
     /**
      * In-memory representation of console log level.
@@ -248,6 +250,12 @@ public final class S3BucketPublisher extends Recorder implements SimpleBuildStep
         this.uploadTimeout = Math.max(uploadTimeout, Uploads.MIN_UPLOAD_TIMEOUT);
     }
 
+    @DataBoundSetter
+    public void setChecksumAlgorithm(ChecksumAlgorithm checksumAlgorithm) {
+        this.checksumAlgorithm = checksumAlgorithm != null
+                ? checksumAlgorithm : ChecksumAlgorithm.CRC32;
+    }
+
     private void log(final PrintStream logger, final String message) {
         log(Level.INFO, logger, message);
     }
@@ -333,7 +341,7 @@ public final class S3BucketPublisher extends Recorder implements SimpleBuildStep
                 final Map<String, String> escapedMetadata = buildMetadata(envVars, entry);
 
                 final List<FingerprintRecord> records = Lists.newArrayList();
-                final List<FingerprintRecord> fingerprints = profile.upload(run, bucket, paths, filenames, escapedMetadata, storageClass, selRegion, entry.uploadFromSlave, entry.managedArtifacts, entry.useServerSideEncryption, entry.gzipFiles, uploadTimeout);
+                final List<FingerprintRecord> fingerprints = profile.upload(run, bucket, paths, filenames, escapedMetadata, storageClass, selRegion, entry.uploadFromSlave, entry.managedArtifacts, entry.useServerSideEncryption, entry.gzipFiles, checksumAlgorithm, uploadTimeout);
 
                 for (FingerprintRecord fingerprintRecord : fingerprints) {
                     records.add(fingerprintRecord);
