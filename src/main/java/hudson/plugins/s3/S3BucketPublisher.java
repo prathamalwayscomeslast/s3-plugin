@@ -50,7 +50,12 @@ import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 
 import java.io.IOException;
 import java.io.PrintStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -248,7 +253,7 @@ public final class S3BucketPublisher extends Recorder implements SimpleBuildStep
 
     @DataBoundSetter
     public void setChecksumAlgorithm(String checksumAlgorithm) {
-        if (checksumAlgorithm == null) {
+        if (checksumAlgorithm == null || checksumAlgorithm.isBlank()) {
             this.checksumAlgorithm = ChecksumAlgorithm.CRC32;
             return;
         }
