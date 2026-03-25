@@ -251,9 +251,18 @@ public final class S3BucketPublisher extends Recorder implements SimpleBuildStep
     }
 
     @DataBoundSetter
-    public void setChecksumAlgorithm(ChecksumAlgorithm checksumAlgorithm) {
-        this.checksumAlgorithm = checksumAlgorithm != null
-                ? checksumAlgorithm : ChecksumAlgorithm.CRC32;
+    public void setChecksumAlgorithm(String checksumAlgorithm) {
+        if (checksumAlgorithm == null) {
+            this.checksumAlgorithm = ChecksumAlgorithm.CRC32;
+            return;
+        }
+        ChecksumAlgorithm algo = ChecksumAlgorithm.fromValue(checksumAlgorithm);
+        if (algo == ChecksumAlgorithm.UNKNOWN_TO_SDK_VERSION) {
+            throw new IllegalArgumentException("Unsupported checksum algorithm: " + checksumAlgorithm);
+        } else if (algo == ChecksumAlgorithm.CRC64_NVME) {
+            throw new UnsupportedOperationException("Checksum algorithm '" + checksumAlgorithm + "' requires AWS CRT dependency, which is currently unavailable.");
+        }
+        this.checksumAlgorithm = algo;
     }
 
     private void log(final PrintStream logger, final String message) {
