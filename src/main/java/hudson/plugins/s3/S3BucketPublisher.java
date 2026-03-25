@@ -50,11 +50,7 @@ import software.amazon.awssdk.services.s3.model.ChecksumAlgorithm;
 
 import java.io.IOException;
 import java.io.PrintStream;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -256,7 +252,8 @@ public final class S3BucketPublisher extends Recorder implements SimpleBuildStep
             this.checksumAlgorithm = ChecksumAlgorithm.CRC32;
             return;
         }
-        ChecksumAlgorithm algo = ChecksumAlgorithm.fromValue(checksumAlgorithm);
+        String normalized = checksumAlgorithm.toUpperCase(Locale.ROOT);
+        ChecksumAlgorithm algo = ChecksumAlgorithm.fromValue(normalized);
         if (algo == ChecksumAlgorithm.UNKNOWN_TO_SDK_VERSION) {
             throw new IllegalArgumentException("Unsupported checksum algorithm: " + checksumAlgorithm);
         } else if (algo == ChecksumAlgorithm.CRC64_NVME) {
