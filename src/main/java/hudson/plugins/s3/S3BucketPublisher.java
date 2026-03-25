@@ -260,7 +260,8 @@ public final class S3BucketPublisher extends Recorder implements SimpleBuildStep
         if (algo == ChecksumAlgorithm.UNKNOWN_TO_SDK_VERSION) {
             throw new IllegalArgumentException("Unsupported checksum algorithm: " + checksumAlgorithm);
         } else if (algo == ChecksumAlgorithm.CRC64_NVME) {
-            throw new UnsupportedOperationException("Checksum algorithm '" + checksumAlgorithm + "' requires AWS CRT dependency, which is currently unavailable.");
+            throw new UnsupportedOperationException("Checksum algorithm '" + checksumAlgorithm + "' requires AWS CRT dependency, which is currently unavailable."
+                    + "\nUse another algorithm (CRC32, CRC32C, SHA1, SHA256).");
         }
         this.checksumAlgorithm = algo;
     }
