@@ -165,7 +165,7 @@ public class S3Profile {
                                     final boolean gzipFiles,
                                     final int uploadTimeout) throws IOException, InterruptedException {
         return upload(run, bucketName, filePaths, fileNames, userMetadata, storageClass, selregion,
-                uploadFromSlave, managedArtifacts, useServerSideEncryption, gzipFiles, ChecksumAlgorithm.CRC32_C, uploadTimeout);
+                uploadFromSlave, managedArtifacts, useServerSideEncryption, gzipFiles, null, uploadTimeout);
     }
 
     public List<FingerprintRecord> upload(Run<?, ?> run,
