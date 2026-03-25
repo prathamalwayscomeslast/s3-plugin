@@ -31,7 +31,6 @@ import hudson.model.BuildListener;
 import hudson.model.FreeStyleProject;
 import hudson.model.Label;
 import hudson.plugins.copyartifact.LastCompletedBuildSelector;
-import org.jetbrains.annotations.NotNull;
 import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.BeforeClass;
@@ -45,24 +44,21 @@ import org.testcontainers.DockerClientFactory;
 import org.testcontainers.Testcontainers;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.HttpWaitStrategy;
+import software.amazon.awssdk.annotations.NotNull;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentials;
-import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
-import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
-import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 public class MinIOTest {
 
@@ -102,12 +98,7 @@ public class MinIOTest {
         Integer mappedPort = minioServer.getFirstMappedPort();
         Testcontainers.exposeHostPorts(mappedPort);
         minioServiceEndpoint = String.format("%s:%s", minioServer.getContainerIpAddress(), mappedPort);
-        S3ClientBuilder builder = S3Client.builder().credentialsProvider(new AwsCredentialsProvider() {
-            @Override
-            public AwsCredentials resolveCredentials() {
-                return AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY);
-            }
-        });
+        S3ClientBuilder builder = S3Client.builder().credentialsProvider(() -> AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY));
         builder.region(Region.US_EAST_1).endpointOverride(URI.create("http://" + minioServiceEndpoint))
                 .forcePathStyle(true);
 
@@ -147,11 +138,11 @@ public class MinIOTest {
         });
     }
 
-    private static @NotNull S3BucketPublisher getS3BucketPublisher() {
+    private static @NotNull S3BucketPublisher getS3BucketPublisher(String sourceFileName) {
         return new S3BucketPublisher(
                 "Local",
                 Collections.singletonList(new Entry("test",
-                        "test.txt",
+                        sourceFileName,
                         "",
                         null,
                         "",
@@ -174,8 +165,9 @@ public class MinIOTest {
     private static void createAndRunPublisherWithCustomTimeout(final JenkinsRule r) throws Exception {
         final FreeStyleProject job = r.createFreeStyleProject("publisherJob");
         job.setAssignedLabel(Label.get("work"));
-        job.getBuildersList().add(new CreateFileBuilder("test.txt", FILE_CONTENT));
-        S3BucketPublisher publisher = getS3BucketPublisher();
+        final String fileName = "test.txt";
+        job.getBuildersList().add(new CreateFileBuilder(fileName, FILE_CONTENT));
+        S3BucketPublisher publisher = getS3BucketPublisher(fileName);
         publisher.setUploadTimeout(10);
         job.getPublishersList().add(publisher);
         r.buildAndAssertSuccess(job);
@@ -217,6 +209,71 @@ public class MinIOTest {
             job.getBuildersList().add(new VerifyFileBuilder());
             r.buildAndAssertSuccess(job);
         });
+    }
+
+    // TODO: Use ParameterizedTest after migrating to junit 5
+    @Test
+    public void testChecksumAlgorithms() throws Throwable {
+        List<String> failures = new ArrayList<>();
+        List<ChecksumAlgorithm> algos = new ArrayList<>(ChecksumAlgorithm.knownValues());
+        // Apparently CRC64NVME is incompatible with MinIO, leading to unstable builds and failure in file uploads
+        // This line should be removed when it is eventually supported
+        algos.remove(ChecksumAlgorithm.CRC64_NVME);
+        algos.add(null); // For checking if default algorithm is CRC32
+
+        rr.then( r -> {
+            r.createOnlineSlave(Label.get("work"));
+            createProfile();
+            for (ChecksumAlgorithm algo : algos) {
+                String suffix = (algo == null) ? "default" : algo.toString();
+                String fileName = "test-" + suffix + ".txt";
+                FreeStyleProject job = r.createFreeStyleProject("checksum-" + suffix);
+                job.setAssignedLabel(Label.get("work"));
+                job.getBuildersList().add(new CreateFileBuilder(fileName, FILE_CONTENT));
+                S3BucketPublisher publisher = getS3BucketPublisher(fileName);
+                if (algo != null)
+                    publisher.setChecksumAlgorithm(algo);
+
+                job.getPublishersList().add(publisher);
+                try {
+                    r.buildAndAssertSuccess(job);
+                } catch (Exception e) {
+                    throw new AssertionError("Build failed for algorithm: " + suffix, e);
+                }
+            }
+        });
+
+        try (S3Client client = S3Client.builder()
+                .credentialsProvider(() -> AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY))
+                .region(Region.US_EAST_1)
+                .endpointOverride(URI.create("http://" + minioServiceEndpoint))
+                .forcePathStyle(true)
+                .build()) {
+
+            for (ChecksumAlgorithm algo : algos) {
+                String suffix = (algo == null) ? "default" : algo.toString();
+                String fileName = "test-" + suffix + ".txt";
+                System.out.println(fileName);
+                HeadObjectResponse head = client.headObject(
+                    HeadObjectRequest.builder()
+                            .bucket("test")
+                            .key(fileName)
+                            .build()
+                );
+                String actual = head.checksumTypeAsString();
+                String expected = (algo == null) ? "CRC32" : algo.toString();
+                if (!expected.equals(actual)) {
+                    failures.add(
+                            "Checksum validation failed for algorithm: " + suffix +
+                            "\nExpected: " + expected +
+                            "\nActual: " + actual
+                    );
+                }
+            }
+        }
+        if (!failures.isEmpty()) {
+            fail(String.join("\n", failures));
+        }
     }
 
     public static class VerifyFileBuilder extends TestBuilder {
